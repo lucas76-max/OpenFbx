@@ -50,6 +50,15 @@ parental, Freeplug, switch, notifications, LCD.
   passe par `DELETE downloads/{id}/erase`.
 - **Appareils** : rafraîchissement toutes les 5 s, débits par appareil quand la
   box les expose (et via les stations Wi-Fi), fiche détaillée au toucher.
+- **« none »** : la box renvoie `"error": "none"` quand tout va bien ; ce champ
+  n'est plus affiché comme une erreur.
+- **Material You en OLED** : le mode OLED ne désactive plus les couleurs
+  dynamiques ; seuls les fonds passent au noir absolu. La couleur réellement
+  appliquée est affichée en hexadécimal dans les réglages et tracée au journal.
+- **Bandeau supérieur** : la barre de titre est transparente, le dégradé reste
+  visible ; l'accueil affiche « OpenFbx ».
+- **Sessions** : l'ouverture de session est sérialisée ; au démarrage, quatre
+  requêtes parallèles ouvraient quatre sessions, il n'en reste qu'une.
 
 ## Architecture
 

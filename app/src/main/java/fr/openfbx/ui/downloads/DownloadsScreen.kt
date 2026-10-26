@@ -249,9 +249,9 @@ private fun DownloadCard(
                     )
                     Text(
                         text = listOfNotNull(
-                            task.type?.uppercase(),
+                            task.typeLabel,
                             task.queuePos?.takeIf { it > 0 }?.let { "position $it" },
-                        ).joinToString(" · "),
+                        ).joinToString(" · ").ifBlank { "téléchargement" },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -309,7 +309,7 @@ private fun DownloadCard(
                 )
             }
 
-            task.error?.takeIf { it.isNotBlank() }?.let { message ->
+            task.errorText?.let { message ->
                 Text(
                     text = message,
                     style = MaterialTheme.typography.bodySmall,

@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -62,6 +63,7 @@ import fr.openfbx.ui.theme.FlowerBadge
 import fr.openfbx.ui.theme.darkSchemeFor
 import fr.openfbx.ui.theme.lightSchemeFor
 import fr.openfbx.ui.theme.swatch
+import java.util.Locale
 
 @Composable
 fun SettingsScreen(
@@ -269,18 +271,29 @@ private fun AppearanceCard(
             }
         }
 
-        if (settings.dynamicColor) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(18.dp)
+                    .background(MaterialTheme.colorScheme.primary, CircleShape),
+            )
+            Spacer(Modifier.width(8.dp))
             Text(
-                "Couleurs dynamiques actives : Android impose sa palette. Toucher une couleur " +
-                    "ci-dessus reprend la main.",
+                if (settings.dynamicColor) {
+                    "Couleur active (Material You) : " + activeColorHex()
+                } else {
+                    "Palette « ${settings.accent.label} » : " + activeColorHex()
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        } else {
+        }
+
+        if (settings.dynamicColor) {
             Text(
-                "Palette « ${settings.accent.label} » appliquée.",
+                "Toucher une couleur ci-dessus reprend la main sur la palette du système.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
@@ -362,6 +375,11 @@ private fun ThemePreview(
         )
     }
 }
+
+/** Couleur principale réellement appliquée, en hexadécimal (preuve visible du thème). */
+@Composable
+private fun activeColorHex(): String =
+    String.format(Locale.FRANCE, "#%06X", MaterialTheme.colorScheme.primary.toArgb() and 0xFFFFFF)
 
 @Composable
 private fun FingerprintBlock(fingerprint: String) {

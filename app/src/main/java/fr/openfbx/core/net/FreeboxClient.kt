@@ -6,6 +6,8 @@ import fr.openfbx.core.model.encodeFsPath
 import fr.openfbx.core.model.encodeFsRoot
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.KSerializer
@@ -58,8 +60,16 @@ class FreeboxClient(
 ) {
     private val json = FbxJson
 
+    @Volatile
     private var sessionToken: String? = null
     private var sessionPermissions: Map<String, Boolean> = emptyMap()
+
+    /**
+     * Sérialise l'ouverture de session : plusieurs écrans lancent leurs requêtes
+     * en parallèle au démarrage et recevaient tous `auth_required`, ce qui
+     * ouvrait quatre sessions d'affilée. Une seule suffit désormais.
+     */
+    private val sessionMutex = Mutex()
 
     var observedFingerprint: String? = null
         private set
@@ -114,7 +124,9 @@ class FreeboxClient(
 
     // -------------------------------------------------------------------- session
 
-    suspend fun openSession() {
+    suspend fun openSession() = sessionMutex.withLock { openSessionLocked() }
+
+    private suspend fun openSessionLocked() {
         val appToken = appTokenProvider()
             ?: throw FreeboxException("app_token_missing", "Aucun jeton d'application enregistré.")
 
@@ -131,6 +143,18 @@ class FreeboxClient(
             ?: throw FreeboxException("invalid_response", "Jeton de session absent de la réponse.")
         sessionPermissions = result.booleanMap("permissions")
         AppLog.i(TAG, "Session ouverte (${sessionPermissions.count { it.value }} droits accordés)")
+    }
+
+    /**
+     * Renouvelle la session expirée, sauf si une autre requête vient déjà de le
+     * faire entre-temps (comparaison avec le jeton qui a échoué).
+     */
+    private suspend fun renewSession(staleToken: String?) {
+        sessionMutex.withLock {
+            if (sessionToken != null && sessionToken != staleToken) return
+            sessionToken = null
+            openSessionLocked()
+        }
     }
 
     suspend fun closeSession() {
@@ -352,6 +376,7 @@ class FreeboxClient(
         retryOnAuth: Boolean,
     ): JsonElement {
         val started = System.currentTimeMillis()
+        val usedToken = sessionToken
         val first = parse(execute(method, path, payload))
         val duration = System.currentTimeMillis() - started
 
@@ -367,8 +392,7 @@ class FreeboxClient(
         )
 
         if (retryOnAuth && isSessionErrorCode(first.errorCode)) {
-            sessionToken = null
-            openSession()
+            renewSession(usedToken)
             val retried = parse(execute(method, path, payload))
             if (retried.success) {
                 AppLog.d(TAG, "$method $path → ${retried.httpStatus} après réouverture de session")

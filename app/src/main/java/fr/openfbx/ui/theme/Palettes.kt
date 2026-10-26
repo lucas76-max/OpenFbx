@@ -186,6 +186,25 @@ private fun darkAccent(palette: AccentPalette, neutrals: Neutrals = DarkNeutrals
 
 fun lightSchemeFor(palette: AccentPalette): ColorScheme = lightAccent(palette)
 
+/**
+ * Applique les neutres OLED (noir absolu) à un schéma existant, en conservant
+ * les couleurs d'accent. Permet les couleurs dynamiques **et** le mode OLED en
+ * même temps, au lieu de les rendre exclusifs.
+ */
+fun ColorScheme.withOledSurfaces(): ColorScheme = copy(
+    background = Color.Black,
+    surface = Color.Black,
+    surfaceContainerLowest = Color.Black,
+    surfaceContainerLow = OledNeutrals.surfaceContainerLow,
+    surfaceContainer = OledNeutrals.surfaceContainer,
+    surfaceContainerHigh = OledNeutrals.surfaceContainerHigh,
+    surfaceContainerHighest = OledNeutrals.surfaceContainerHighest,
+    surfaceVariant = OledNeutrals.surfaceVariant,
+    surfaceDim = Color.Black,
+    surfaceBright = OledNeutrals.surfaceContainerHigh,
+    outlineVariant = OledNeutrals.outlineVariant,
+)
+
 fun darkSchemeFor(palette: AccentPalette): ColorScheme = darkAccent(palette)
 
 fun oledSchemeFor(palette: AccentPalette): ColorScheme = darkAccent(palette, OledNeutrals)

@@ -29,6 +29,16 @@ data class DownloadTask(
 ) {
     val isPaused: Boolean get() = status == "stopped"
     val isFailed: Boolean get() = status == "error"
+
+    /**
+     * La box renvoie `"error": "none"` quand tout va bien : ce n'est pas un
+     * message à afficher. Même prudence pour le type, absent sur certains firmwares.
+     */
+    val errorText: String?
+        get() = error?.trim()?.takeIf { it.isNotEmpty() && !it.equals("none", ignoreCase = true) }
+
+    val typeLabel: String?
+        get() = type?.trim()?.takeIf { it.isNotEmpty() && !it.equals("none", ignoreCase = true) }?.uppercase()
     val isFinished: Boolean get() = status == "done"
     val isRunning: Boolean
         get() = status in setOf("active", "downloading", "seeding", "checking", "extracting", "repairing", "stopping")

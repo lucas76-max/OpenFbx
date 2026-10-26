@@ -60,7 +60,7 @@ fun HomeScreen(
         }
     }
 
-    ScreenScaffold(title = boxName, onRefresh = viewModel::refresh) {
+    ScreenScaffold(title = "OpenFbx", onRefresh = viewModel::refresh) {
         if (state.loading) {
             LoadingPane("Connexion à la Freebox…")
             return@ScreenScaffold
@@ -106,6 +106,7 @@ fun HomeScreen(
 
         state.system?.let { system ->
             SectionCard(title = "Freebox") {
+                InfoRow("Box", boxName)
                 InfoRow("Modèle", system.boardName ?: system.mac)
                 InfoRow("Firmware", system.firmwareVersion)
                 InfoRow("Uptime", formatUptime(system.uptimeSeconds))

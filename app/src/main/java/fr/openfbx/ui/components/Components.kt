@@ -137,8 +137,10 @@ fun ScreenScaffold(
                         }
                     }
                 },
+                // Pas de bandeau : le dégradé de la page reste visible derrière le titre.
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent,
                     titleContentColor = MaterialTheme.colorScheme.onBackground,
                 ),
                 actions = {
