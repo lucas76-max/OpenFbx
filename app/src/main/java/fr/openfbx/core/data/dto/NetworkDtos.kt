@@ -53,6 +53,15 @@ data class WifiStation(
 )
 
 @Serializable
+data class L3Connectivity(
+    val addr: String? = null,
+    val af: String? = null,
+    val active: Boolean? = null,
+    val reachable: Boolean? = null,
+    @SerialName("last_activity") val lastActivity: Long? = null,
+)
+
+@Serializable
 data class LanHost(
     val id: String? = null,
     @SerialName("primary_name") val primaryName: String? = null,
@@ -61,11 +70,18 @@ data class LanHost(
     val active: Boolean = false,
     val reachable: Boolean? = null,
     @SerialName("last_time_reachable") val lastTimeReachable: Long? = null,
+    @SerialName("last_activity") val lastActivity: Long? = null,
     @SerialName("vendor_name") val vendorName: String? = null,
     @SerialName("interface") val iface: String? = null,
+    /** Certains firmwares exposent un débit par appareil (octets/s). */
+    @SerialName("rx_rate") val rxRate: Long? = null,
+    @SerialName("tx_rate") val txRate: Long? = null,
     @SerialName("l2ident") val l2ident: L2Ident? = null,
+    @SerialName("l3connectivities") val l3connectivities: List<L3Connectivity> = emptyList(),
 ) {
     val mac: String? get() = l2ident?.id
+    val ipv4: String? get() = l3connectivities.firstOrNull { it.af == "ipv4" && it.active != false }?.addr
+    val ipv6: String? get() = l3connectivities.firstOrNull { it.af == "ipv6" && it.reachable == true }?.addr
 }
 
 @Serializable

@@ -1,5 +1,10 @@
 package fr.openfbx.ui.files
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -18,14 +23,15 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.NoteAdd
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -35,10 +41,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -54,27 +62,87 @@ import fr.openfbx.ui.components.SectionCard
 import fr.openfbx.ui.components.StatusPill
 import fr.openfbx.ui.formatBytes
 import fr.openfbx.ui.formatDateShort
+import fr.openfbx.ui.formatTimestamp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+private const val MAX_UPLOAD_BYTES = 128 * 1024 * 1024
 
 @Composable
 fun FilesScreen(viewModel: FilesViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
     var newFolderDialog by rememberSaveable { mutableStateOf(false) }
+    var newFileDialog by rememberSaveable { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<FileEntry?>(null) }
     var deleteTarget by remember { mutableStateOf<FileEntry?>(null) }
+    var detailTarget by remember { mutableStateOf<FileEntry?>(null) }
+    var localError by remember { mutableStateOf<String?>(null) }
+
+    val uploadLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val name = displayName(context, uri) ?: "fichier"
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+            }
+            when {
+                bytes == null -> localError = "Impossible de lire « $name »."
+                bytes.size > MAX_UPLOAD_BYTES -> localError =
+                    "« $name » dépasse 128 Mo : envoyez-le depuis un ordinateur sur le disque de la Freebox."
+                bytes.isEmpty() -> viewModel.createFile(name, "")
+                else -> viewModel.upload(name, bytes)
+            }
+        }
+    }
 
     ScreenScaffold(
         title = "Fichiers",
         onRefresh = viewModel::refresh,
         actions = {
-            IconButton(onClick = { newFolderDialog = true }, enabled = !state.busy) {
+            IconButton(onClick = { newFileDialog = true }, enabled = !state.busy && !state.uploading) {
+                Icon(Icons.Filled.NoteAdd, contentDescription = "Nouveau fichier")
+            }
+            IconButton(onClick = { newFolderDialog = true }, enabled = !state.busy && !state.uploading) {
                 Icon(Icons.Filled.CreateNewFolder, contentDescription = "Nouveau dossier")
+            }
+            IconButton(
+                onClick = { uploadLauncher.launch(arrayOf("*/*")) },
+                enabled = !state.busy && !state.uploading,
+            ) {
+                Icon(Icons.Filled.Upload, contentDescription = "Envoyer un fichier")
             }
         },
     ) {
         state.message?.let { InlineNotice(it) }
         state.error?.let { InlineError(it) { viewModel.refresh() } }
+        localError?.let { InlineError(it) { localError = null } }
+
+        if (state.uploading) {
+            SectionCard(title = "Envoi en cours") {
+                Text(
+                    text = state.uploadingName ?: "fichier",
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                LinearProgressIndicator(
+                    progress = { state.uploadProgress ?: 0f },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    text = "${((state.uploadProgress ?: 0f) * 100).toInt()} %",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
 
         Breadcrumbs(
+            path = state.path,
             crumbs = state.crumbs,
             onOpen = { index -> viewModel.open(state.crumbs.take(index + 1).joinToString("/")) },
         )
@@ -109,8 +177,11 @@ fun FilesScreen(viewModel: FilesViewModel = viewModel()) {
                 if (index > 0) HorizontalDivider()
                 FileRow(
                     entry = entry,
-                    enabled = !state.busy,
-                    onOpen = { viewModel.openEntry(entry) },
+                    enabled = !state.busy && !state.uploading,
+                    onOpen = {
+                        if (entry.isDir) viewModel.openEntry(entry) else detailTarget = entry
+                    },
+                    onDetails = { detailTarget = entry },
                     onRename = { renameTarget = entry },
                     onDelete = { deleteTarget = entry },
                 )
@@ -119,8 +190,8 @@ fun FilesScreen(viewModel: FilesViewModel = viewModel()) {
 
         Spacer(Modifier.height(16.dp))
         Text(
-            "L'explorateur agit sur les disques connectés à la Freebox. Un dossier supprimé " +
-                "part avec son contenu : rien n'est récupérable depuis l'application.",
+            "Touchez un dossier pour l'ouvrir, un fichier pour sa fiche. Les envois passent par le " +
+                "WebSocket d'upload de la Freebox et écrasent un fichier de même nom.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -141,6 +212,16 @@ fun FilesScreen(viewModel: FilesViewModel = viewModel()) {
         )
     }
 
+    if (newFileDialog) {
+        NewFileDialog(
+            onDismiss = { newFileDialog = false },
+            onConfirm = { name, content ->
+                newFileDialog = false
+                viewModel.createFile(name, content)
+            },
+        )
+    }
+
     renameTarget?.let { entry ->
         NameDialog(
             title = "Renommer",
@@ -151,6 +232,36 @@ fun FilesScreen(viewModel: FilesViewModel = viewModel()) {
             onConfirm = { name ->
                 renameTarget = null
                 viewModel.rename(entry, name)
+            },
+        )
+    }
+
+    detailTarget?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { detailTarget = null },
+            title = { Text(entry.displayName, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        if (entry.isDir) "Dossier" else "Fichier",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (!entry.isDir) {
+                        Text("Taille : ${formatBytes(entry.size)}", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Text(
+                        "Modifié le ${formatTimestamp(entry.mtime?.let { if (it > 10_000_000_000L) it / 1000 else it })}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { detailTarget = null }) { Text("Fermer") } },
+            dismissButton = {
+                TextButton(onClick = {
+                    renameTarget = entry
+                    detailTarget = null
+                }) { Text("Renommer") }
             },
         )
     }
@@ -185,7 +296,7 @@ fun FilesScreen(viewModel: FilesViewModel = viewModel()) {
 }
 
 @Composable
-private fun Breadcrumbs(crumbs: List<String>, onOpen: (Int) -> Unit) {
+private fun Breadcrumbs(path: String, crumbs: List<String>, onOpen: (Int) -> Unit) {
     Row(
         modifier = Modifier.horizontalScroll(rememberScrollState()),
         verticalAlignment = Alignment.CenterVertically,
@@ -197,6 +308,9 @@ private fun Breadcrumbs(crumbs: List<String>, onOpen: (Int) -> Unit) {
                 Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
+        if (path.isNotBlank() && crumbs.isEmpty()) {
+            Text(path, style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
 
@@ -205,6 +319,7 @@ private fun FileRow(
     entry: FileEntry,
     enabled: Boolean,
     onOpen: () -> Unit,
+    onDetails: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -213,7 +328,7 @@ private fun FileRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = entry.isDir && enabled, onClick = onOpen)
+            .clickable(enabled = enabled, onClick = onOpen)
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -234,7 +349,7 @@ private fun FileRow(
             Text(
                 text = if (entry.isDir) "Dossier" else listOfNotNull(
                     formatBytes(entry.size),
-                    formatDateShort(entry.mtime),
+                    formatDateShort(entry.mtime?.let { if (it > 10_000_000_000L) it / 1000 else it }),
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -251,6 +366,13 @@ private fun FileRow(
                 Icon(Icons.Filled.MoreVert, contentDescription = "Actions")
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text("Détails") },
+                    onClick = {
+                        menuOpen = false
+                        onDetails()
+                    },
+                )
                 DropdownMenuItem(
                     text = { Text("Renommer") },
                     onClick = {
@@ -300,4 +422,54 @@ private fun NameDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
     )
+}
+
+@Composable
+private fun NewFileDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var content by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Nouveau fichier") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Nom (ex. notes.txt)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = content,
+                    onValueChange = { content = it },
+                    label = { Text("Contenu (facultatif)") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Le fichier est créé dans le dossier affiché.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(name.trim(), content) }, enabled = name.isNotBlank()) {
+                Text("Créer")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+    )
+}
+
+/** Nom lisible d'un document choisi dans le sélecteur Android. */
+private fun displayName(context: Context, uri: Uri): String? {
+    val fromProvider = runCatching {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+    }.getOrNull()
+    return fromProvider ?: uri.lastPathSegment?.substringAfterLast('/')
 }

@@ -1,5 +1,6 @@
 package fr.openfbx.ui.network
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -60,16 +62,27 @@ import fr.openfbx.ui.components.SectionCard
 import fr.openfbx.ui.components.StatusPill
 import fr.openfbx.ui.formatBytes
 import fr.openfbx.ui.formatLinkSpeed
+import fr.openfbx.ui.formatRate
+import fr.openfbx.ui.formatTimestamp
 import fr.openfbx.ui.formatUptime
 import fr.openfbx.ui.humanMedia
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NetworkScreen(viewModel: NetworkViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    var selectedHost by remember { mutableStateOf<LanHost?>(null) }
 
-    LaunchedEffect(Unit) { viewModel.refresh() }
+    // Les appareils et leurs débits sont rafraîchis en direct tant que l'écran est visible.
+    LaunchedEffect(Unit) {
+        viewModel.refresh()
+        while (true) {
+            delay(5_000)
+            viewModel.refreshLive()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -110,7 +123,11 @@ fun NetworkScreen(viewModel: NetworkViewModel = viewModel()) {
                 } else {
                     when (tab) {
                         0 -> ConnectionTab(state)
-                        1 -> HostsTab(state, onWake = viewModel::wakeOnLan)
+                        1 -> HostsTab(
+                            state = state,
+                            onWake = viewModel::wakeOnLan,
+                            onSelect = { selectedHost = it },
+                        )
                         else -> DhcpTab(
                             state = state,
                             onAddLease = viewModel::addStaticLease,
@@ -120,6 +137,16 @@ fun NetworkScreen(viewModel: NetworkViewModel = viewModel()) {
                 }
             }
         }
+    }
+
+    selectedHost?.let { host ->
+        HostDetailDialog(
+            host = host,
+            rate = host.mac?.lowercase()?.let { state.rates[it] },
+            busy = state.busy,
+            onWake = viewModel::wakeOnLan,
+            onDismiss = { selectedHost = null },
+        )
     }
 }
 
@@ -172,10 +199,31 @@ private fun ConnectionTab(state: NetworkUiState) {
 }
 
 @Composable
-private fun HostsTab(state: NetworkUiState, onWake: (String) -> Unit) {
+private fun HostsTab(
+    state: NetworkUiState,
+    onWake: (String) -> Unit,
+    onSelect: (LanHost) -> Unit,
+) {
     SectionCard(title = "Appareils sur le réseau local") {
         Text(
-            "${state.hosts.count { it.active }} actifs sur ${state.hosts.size} connus.",
+            "${state.activeHosts} actifs sur ${state.hosts.size} connus · mis à jour en continu",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text(
+                "↓ ${formatRate(state.totalDown)}",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                "↑ ${formatRate(state.totalUp)}",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Text(
+            "Touchez un appareil pour sa fiche détaillée.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -185,15 +233,25 @@ private fun HostsTab(state: NetworkUiState, onWake: (String) -> Unit) {
         EmptyPane("Aucun appareil remonté par la Freebox.")
     }
 
-    state.hosts.take(60).forEach { host ->
-        HostCard(host = host, onWake = onWake)
+    state.hosts.take(80).forEach { host ->
+        HostCard(
+            host = host,
+            rate = host.mac?.lowercase()?.let { state.rates[it] },
+            onWake = onWake,
+            onSelect = { onSelect(host) },
+        )
     }
 }
 
 @Composable
-private fun HostCard(host: LanHost, onWake: (String) -> Unit) {
+private fun HostCard(
+    host: LanHost,
+    rate: HostRate?,
+    onWake: (String) -> Unit,
+    onSelect: () -> Unit,
+) {
     ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect),
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
     ) {
@@ -218,12 +276,21 @@ private fun HostCard(host: LanHost, onWake: (String) -> Unit) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                host.vendorName?.let {
+                if (rate != null && (rate.rx != null || rate.tx != null)) {
                     Text(
-                        it,
+                        text = "↓ ${formatRate(rate.rx)} · ↑ ${formatRate(rate.tx)}" +
+                            if (rate.viaWifi) " · Wi-Fi" else "",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.primary,
                     )
+                } else {
+                    host.vendorName?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             val mac = host.mac
@@ -234,6 +301,67 @@ private fun HostCard(host: LanHost, onWake: (String) -> Unit) {
             }
         }
     }
+}
+
+@Composable
+private fun HostDetailDialog(
+    host: LanHost,
+    rate: HostRate?,
+    busy: Boolean,
+    onWake: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                host.primaryName ?: host.primaryAddr ?: "Appareil",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    StatusPill(
+                        text = if (host.active) "connecté" else "hors ligne",
+                        tone = if (host.active) PillTone.POSITIVE else PillTone.NEUTRAL,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(host.hostType ?: "appareil", style = MaterialTheme.typography.bodySmall)
+                }
+                InfoRow("Adresse IP", host.primaryAddr ?: host.ipv4)
+                host.ipv6?.let { InfoRow("IPv6", it, mono = true) }
+                InfoRow("Adresse MAC", host.mac, mono = true)
+                InfoRow("Constructeur", host.vendorName)
+                InfoRow("Interface", host.iface)
+                InfoRow("Dernière activité", formatTimestamp(host.lastActivity ?: host.lastTimeReachable))
+                InfoRow("Débit descendant", formatRate(rate?.rx))
+                InfoRow("Débit montant", formatRate(rate?.tx))
+                if (rate == null) {
+                    Text(
+                        "Cette Freebox n'expose pas de débit par appareil : les valeurs sont " +
+                            "disponibles pour les clients Wi-Fi et sur certains firmwares filaires.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            val mac = host.mac
+            if (mac != null) {
+                Button(
+                    onClick = {
+                        onWake(mac)
+                        onDismiss()
+                    },
+                    enabled = !busy,
+                ) { Text("Réveiller") }
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Fermer") } },
+    )
 }
 
 @Composable

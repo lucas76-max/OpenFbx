@@ -1,5 +1,6 @@
 package fr.openfbx.ui
 
+import fr.openfbx.core.data.dto.SystemInfo
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -91,6 +92,18 @@ fun formatDateShort(epochSeconds: Long?): String {
 
 fun formatTemperature(celsius: Double?): String =
     if (celsius == null || celsius <= 0.0) "—" else String.format(FR, "%.1f °C", celsius)
+
+/**
+ * Température CPU : champ hérité `temp_cpub`, puis `temp_cpum`, puis capteur
+ * nommé des firmwares récents (l'ancien code n'affichait rien quand `temp_cpub`
+ * manquait).
+ */
+fun SystemInfo.cpuTemperature(): Double? =
+    tempCpuB ?: tempCpuM
+        ?: sensors.firstOrNull {
+            val label = "${it.id.orEmpty()} ${it.name.orEmpty()}".lowercase(Locale.ROOT)
+            label.contains("cpu")
+        }?.value
 
 fun formatChannel(channel: Int?, width: Int?): String {
     if (channel == null) return "—"

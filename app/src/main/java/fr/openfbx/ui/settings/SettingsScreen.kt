@@ -1,9 +1,11 @@
 package fr.openfbx.ui.settings
 
+import android.os.Build
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,6 +34,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -52,13 +58,16 @@ import fr.openfbx.ui.components.SectionCard
 import fr.openfbx.ui.components.StatusPill
 import fr.openfbx.ui.components.SwitchRow
 import fr.openfbx.ui.permissionLabel
-import fr.openfbx.ui.theme.ScallopedBadge
+import fr.openfbx.ui.theme.FlowerBadge
 import fr.openfbx.ui.theme.darkSchemeFor
 import fr.openfbx.ui.theme.lightSchemeFor
 import fr.openfbx.ui.theme.swatch
 
 @Composable
-fun SettingsScreen(viewModel: SettingsViewModel = viewModel()) {
+fun SettingsScreen(
+    onOpenLogs: () -> Unit = {},
+    viewModel: SettingsViewModel = viewModel(),
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var confirmForget by rememberSaveable { mutableStateOf(false) }
 
@@ -84,13 +93,8 @@ fun SettingsScreen(viewModel: SettingsViewModel = viewModel()) {
                 InfoRow("Adresse", "${config.host}:${config.httpsPort}", mono = true)
                 InfoRow("Version d'API", config.apiVersion ?: "v${config.apiMajor}")
                 config.apiDomain?.let { InfoRow("Domaine distant", it, mono = true) }
-                config.certFingerprint?.let {
-                    InfoRow("Empreinte du certificat", it, mono = true)
-                    Text(
-                        "Toute autre empreinte est refusée : c'est ce qui protège contre une usurpation.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                config.certFingerprint?.let { fingerprint ->
+                    FingerprintBlock(fingerprint)
                 }
             }
         }
@@ -137,6 +141,18 @@ fun SettingsScreen(viewModel: SettingsViewModel = viewModel()) {
             }
         }
 
+        SectionCard(title = "Journaux") {
+            Text(
+                "Toutes les requêtes envoyées à la Freebox, leurs erreurs et les événements de " +
+                    "l'application sont conservés en mémoire (800 entrées).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedButton(onClick = onOpenLogs, modifier = Modifier.fillMaxWidth()) {
+                Text("Ouvrir les journaux")
+            }
+        }
+
         SectionCard(title = "À propos") {
             InfoRow("Application", "OpenFbx")
             InfoRow("Version", BuildConfig.VERSION_NAME)
@@ -174,7 +190,7 @@ private fun AppearanceCard(
 ) {
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            ScallopedBadge(icon = Icons.Filled.Palette, size = 56.dp)
+            FlowerBadge(icon = Icons.Filled.Palette, size = 60.dp)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text("Apparence", style = MaterialTheme.typography.headlineSmall)
@@ -240,32 +256,43 @@ private fun AppearanceCard(
             color = MaterialTheme.colorScheme.primary,
         )
 
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            AccentPalette.entries.forEach { palette ->
+                PaletteSwatch(
+                    palette = palette,
+                    selected = settings.accent == palette && !settings.dynamicColor,
+                    onClick = { onAccent(palette) },
+                )
+            }
+        }
+
         if (settings.dynamicColor) {
             Text(
-                "Les couleurs sont fournies par Android (Material You) : la palette manuelle est masquée. " +
-                    "Désactivez les couleurs dynamiques pour en choisir une.",
+                "Couleurs dynamiques actives : Android impose sa palette. Toucher une couleur " +
+                    "ci-dessus reprend la main.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         } else {
-            Row(
-                Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                AccentPalette.entries.forEach { palette ->
-                    PaletteSwatch(
-                        palette = palette,
-                        selected = settings.accent == palette,
-                        onClick = { onAccent(palette) },
-                    )
-                }
-            }
+            Text(
+                "Palette « ${settings.accent.label} » appliquée.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
         }
 
         SwitchRow(
             title = "Couleurs dynamiques",
-            subtitle = "Reprendre la palette de l'écran (Android 12 et plus)",
-            checked = settings.dynamicColor,
+            subtitle = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                "Reprendre la palette de l'écran (Material You)"
+            } else {
+                "Nécessite Android 12 ou plus : la palette manuelle est utilisée"
+            },
+            checked = settings.dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
+            enabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
             onCheckedChange = onDynamicColor,
         )
     }
@@ -334,6 +361,49 @@ private fun ThemePreview(
             maxLines = 1,
         )
     }
+}
+
+@Composable
+private fun FingerprintBlock(fingerprint: String) {
+    val clipboard = LocalClipboardManager.current
+    val formatted = formatFingerprint(fingerprint)
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            "Empreinte du certificat",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            shape = MaterialTheme.shapes.medium,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            SelectionContainer {
+                Text(
+                    text = formatted,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(10.dp),
+                )
+            }
+        }
+        TextButton(onClick = { clipboard.setText(AnnotatedString(formatted)) }) {
+            Text("Copier l'empreinte")
+        }
+        Text(
+            "Toute autre empreinte est refusée : c'est ce qui protège contre une usurpation.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** SHA-256 hexadécimal → paires séparées par deux-points, huit paires par ligne. */
+private fun formatFingerprint(raw: String): String {
+    val clean = raw.filter { it.isLetterOrDigit() }.uppercase()
+    if (clean.length < 4) return raw
+    return clean.chunked(2).chunked(8).joinToString("\n") { group -> group.joinToString(":") }
 }
 
 @Composable

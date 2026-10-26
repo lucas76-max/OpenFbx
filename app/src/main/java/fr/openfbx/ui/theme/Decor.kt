@@ -14,45 +14,112 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * Motif décoratif du haut d'écran : une fleur de pétales translucides.
+ * Halo de couleur en haut de chaque page.
  *
- * Purement graphique (aucune interaction), très désaturé pour ne jamais gêner la
- * lecture des textes posés dessus.
+ * La teinte Material choisie émane du centre-gauche, puis se diffuse vers la
+ * droite et le bas jusqu'à se fondre dans la couleur de fond (noir, blanc ou
+ * OLED). Aucun bord franc : le dégradé est volontairement très large.
  */
 @Composable
-fun PetalBackdrop(
+fun TopGlow(
     modifier: Modifier = Modifier,
-    height: Dp = 280.dp,
+    height: Dp = 340.dp,
 ) {
-    val petal = MaterialTheme.colorScheme.primary
-    val halo = MaterialTheme.colorScheme.tertiary
+    val glow = MaterialTheme.colorScheme.primary
+    val background = MaterialTheme.colorScheme.background
 
     Canvas(modifier.fillMaxWidth().height(height)) {
-        drawFlower(
-            center = Offset(size.width * 0.80f, size.height * 0.16f),
-            radius = size.minDimension * 0.20f,
-            petals = 9,
-            color = petal.copy(alpha = 0.10f),
+        val center = Offset(size.width * 0.34f, size.height * 0.02f)
+        val radius = size.width * 1.15f
+
+        drawRect(
+            brush = Brush.radialGradient(
+                colorStops = arrayOf(
+                    0.00f to glow.copy(alpha = 0.42f),
+                    0.35f to glow.copy(alpha = 0.24f),
+                    0.68f to glow.copy(alpha = 0.08f),
+                    1.00f to glow.copy(alpha = 0.00f),
+                ),
+                center = center,
+                radius = radius,
+            ),
         )
+
+        // Fondu vertical vers le fond : évite toute ligne de démarcation.
+        drawRect(
+            brush = Brush.verticalGradient(
+                colorStops = arrayOf(
+                    0.00f to background.copy(alpha = 0.00f),
+                    0.55f to background.copy(alpha = 0.35f),
+                    1.00f to background,
+                ),
+            ),
+        )
+    }
+}
+
+/**
+ * Pastille « fleur » : huit lobes arrondis et symétriques, sans aucun angle
+ * droit, remplie d'une couleur Material légèrement plus claire que le fond.
+ */
+@Composable
+fun FlowerBadge(
+    icon: ImageVector = Icons.Filled.Palette,
+    size: Dp = 60.dp,
+    modifier: Modifier = Modifier,
+) {
+    val petals = MaterialTheme.colorScheme.primaryContainer
+    val core = MaterialTheme.colorScheme.primaryContainer
+    val content = MaterialTheme.colorScheme.onPrimaryContainer
+
+    Box(modifier.size(size), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize()) {
+            val radius = this.size.minDimension / 2f
+            // Huit lobes qui se chevauchent : la silhouette reste ondulée et douce.
+            val lobeRadius = radius * 0.42f
+            val distance = radius * 0.55f
+            repeat(8) { index ->
+                val angle = (index * 2.0 * PI / 8.0).toFloat() - (PI / 8.0).toFloat()
+                drawCircle(
+                    color = petals,
+                    radius = lobeRadius,
+                    center = Offset(
+                        x = this.size.width / 2f + cos(angle) * distance,
+                        y = this.size.height / 2f + sin(angle) * distance,
+                    ),
+                )
+            }
+            drawCircle(color = core, radius = radius * 0.58f)
+        }
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = content,
+            modifier = Modifier.size(size * 0.40f),
+        )
+    }
+}
+
+/** Halo décoratif posé derrière une icône, sans contour. */
+@Composable
+fun SoftHalo(color: Color, modifier: Modifier = Modifier, size: Dp = 120.dp) {
+    Canvas(modifier.size(size)) {
         drawCircle(
-            color = halo.copy(alpha = 0.05f),
-            radius = size.minDimension * 0.34f,
-            center = Offset(size.width * 0.80f, size.height * 0.16f),
-        )
-        drawFlower(
-            center = Offset(size.width * 0.12f, size.height * 0.58f),
-            radius = size.minDimension * 0.11f,
-            petals = 7,
-            color = halo.copy(alpha = 0.06f),
+            brush = Brush.radialGradient(
+                colors = listOf(color.copy(alpha = 0.18f), color.copy(alpha = 0f)),
+            ),
+            radius = this.size.minDimension / 2f,
         )
     }
 }
@@ -63,56 +130,14 @@ private fun DrawScope.drawFlower(
     petals: Int,
     color: Color,
 ) {
-    val petalRadius = radius * 0.46f
+    val petalRadius = radius * 0.44f
     val distance = radius - petalRadius
     repeat(petals) { index ->
-        val angle = (index * 2.0 * Math.PI / petals).toFloat()
+        val angle = (index * 2.0 * PI / petals).toFloat()
         drawCircle(
             color = color,
             radius = petalRadius,
             center = Offset(center.x + cos(angle) * distance, center.y + sin(angle) * distance),
-        )
-    }
-    drawCircle(color = color, radius = petalRadius * 1.15f, center = center)
-}
-
-/**
- * Pastille dentelée (fleur / engrenage) contenant une icône : sert d'emblème aux
- * en-têtes de section mis en avant.
- */
-@Composable
-fun ScallopedBadge(
-    icon: ImageVector = Icons.Filled.Palette,
-    size: Dp = 60.dp,
-    modifier: Modifier = Modifier,
-) {
-    val petals = MaterialTheme.colorScheme.primaryContainer
-    val core = MaterialTheme.colorScheme.surfaceContainerHighest
-    val content = MaterialTheme.colorScheme.onPrimaryContainer
-
-    Box(modifier.size(size), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize()) {
-            val radius = this.size.minDimension / 2f
-            val scallop = radius * 0.30f
-            val distance = radius - scallop * 1.7f
-            repeat(12) { index ->
-                val angle = (index * 2.0 * Math.PI / 12).toFloat()
-                drawCircle(
-                    color = petals,
-                    radius = scallop,
-                    center = Offset(
-                        x = this.size.width / 2f + cos(angle) * distance,
-                        y = this.size.height / 2f + sin(angle) * distance,
-                    ),
-                )
-            }
-            drawCircle(color = core, radius = radius * 0.66f)
-        }
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = content,
-            modifier = Modifier.size(size * 0.42f),
         )
     }
 }

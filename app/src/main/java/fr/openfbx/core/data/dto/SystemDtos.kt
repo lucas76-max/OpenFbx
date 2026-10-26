@@ -4,6 +4,13 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
+data class SystemSensor(
+    val id: String? = null,
+    val name: String? = null,
+    val value: Double? = null,
+)
+
+@Serializable
 data class SystemInfo(
     @SerialName("firmware_version") val firmwareVersion: String? = null,
     val mac: String? = null,
@@ -12,7 +19,10 @@ data class SystemInfo(
     @SerialName("uptime_val") val uptimeSeconds: Long? = null,
     @SerialName("board_name") val boardName: String? = null,
     @SerialName("temp_cpub") val tempCpuB: Double? = null,
+    @SerialName("temp_cpum") val tempCpuM: Double? = null,
     @SerialName("temp_sw") val tempSwitch: Double? = null,
+    /** Firmwares récents : capteurs nommés, à privilégier sur les champs hérités. */
+    val sensors: List<SystemSensor> = emptyList(),
     @SerialName("fan_rpm") val fanRpm: Int? = null,
     @SerialName("box_authenticated") val authenticated: Boolean? = null,
     @SerialName("disk_status") val diskStatus: String? = null,

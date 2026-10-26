@@ -28,6 +28,7 @@ import fr.openfbx.ui.components.InlineNotice
 import fr.openfbx.ui.components.LoadingPane
 import fr.openfbx.ui.components.ScreenScaffold
 import fr.openfbx.ui.components.SectionCard
+import fr.openfbx.ui.cpuTemperature
 import fr.openfbx.ui.formatTemperature
 import fr.openfbx.ui.formatUptime
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -105,8 +106,15 @@ fun SystemScreen(
             }
 
             SectionCard(title = "Matériel") {
-                InfoRow("Température CPU", formatTemperature(system.tempCpuB))
-                InfoRow("Température switch", formatTemperature(system.tempSwitch))
+                if (system.sensors.isNotEmpty()) {
+                    system.sensors.forEach { sensor ->
+                        val label = sensor.name ?: sensor.id ?: "Capteur"
+                        InfoRow(label, sensor.value?.let { "%.1f °C".format(it) })
+                    }
+                } else {
+                    InfoRow("Température CPU", formatTemperature(system.cpuTemperature()))
+                    InfoRow("Température switch", formatTemperature(system.tempSwitch))
+                }
                 InfoRow("Ventilateur", system.fanRpm?.let { "$it tr/min" })
                 InfoRow("Disque", system.diskStatus)
                 InfoRow("Stockage principal", system.mainStorage)

@@ -3,8 +3,10 @@ package fr.openfbx.ui.files
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import fr.openfbx.core.AppGraph
-import fr.openfbx.core.data.childFsPath
 import fr.openfbx.core.data.dto.FileEntry
+import fr.openfbx.core.model.childFsPath
+import fr.openfbx.core.model.encodeFsPath
+import fr.openfbx.core.model.normalizeFsPath
 import fr.openfbx.core.net.userMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,6 +23,9 @@ data class FilesUiState(
     val error: String? = null,
     val message: String? = null,
     val busy: Boolean = false,
+    val uploading: Boolean = false,
+    val uploadProgress: Float? = null,
+    val uploadingName: String? = null,
 ) {
     val isRoot: Boolean get() = path.isBlank()
 }
@@ -36,7 +41,7 @@ class FilesViewModel : ViewModel() {
     }
 
     fun open(path: String) {
-        val normalized = path.trim().trim('/')
+        val normalized = normalizeFsPath(path)
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null, path = normalized) }
             runCatching { repository.files(normalized) }
@@ -58,12 +63,11 @@ class FilesViewModel : ViewModel() {
 
     fun openEntry(entry: FileEntry) {
         if (!entry.isDir) return
-        open(childPath(entry))
+        open(childFsPath(_state.value.path, entry.displayName))
     }
 
     fun up() {
-        val parent = _state.value.path.substringBeforeLast('/', "")
-        open(parent)
+        open(normalizeFsPath(_state.value.path).substringBeforeLast('/', ""))
     }
 
     fun refresh() = open(_state.value.path)
@@ -71,6 +75,41 @@ class FilesViewModel : ViewModel() {
     fun createFolder(name: String) {
         if (name.isBlank()) return
         mutate("Dossier créé.") { repository.createFolder(_state.value.path, name.trim()) }
+    }
+
+    /** Crée un fichier (éventuellement vide) via l'upload WebSocket. */
+    fun createFile(name: String, text: String) {
+        if (name.isBlank()) return
+        upload(name.trim(), text.toByteArray(Charsets.UTF_8))
+    }
+
+    fun upload(name: String, content: ByteArray) {
+        if (name.isBlank()) return
+        val directory = _state.value.path
+        _state.update {
+            it.copy(uploading = true, uploadingName = name, uploadProgress = 0f, message = null, error = null)
+        }
+        viewModelScope.launch {
+            runCatching {
+                repository.uploadFile(directory, name, content) { progress ->
+                    _state.update { it.copy(uploadProgress = progress) }
+                }
+            }.onSuccess {
+                _state.update {
+                    it.copy(uploading = false, uploadProgress = null, uploadingName = null, message = "« $name » envoyé.")
+                }
+                refresh()
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(
+                        uploading = false,
+                        uploadProgress = null,
+                        uploadingName = null,
+                        error = error.userMessage(),
+                    )
+                }
+            }
+        }
     }
 
     fun delete(entry: FileEntry) {
@@ -86,17 +125,9 @@ class FilesViewModel : ViewModel() {
         }
     }
 
-    /** Chemin enfant lisible, utilisé quand la box ne renvoie pas `path`. */
-    private fun childPath(entry: FileEntry): String {
-        val parent = _state.value.path
-        return listOf(parent, entry.displayName)
-            .filter { it.isNotBlank() }
-            .joinToString("/")
-    }
-
     /** Chemin encodé attendu par les actions de la box. */
     private fun entryPath(entry: FileEntry): String =
-        entry.path ?: childFsPath(_state.value.path, entry.displayName)
+        entry.path ?: encodeFsPath(childFsPath(_state.value.path, entry.displayName))
 
     private fun mutate(successMessage: String, block: suspend () -> Unit) {
         if (_state.value.busy) return

@@ -42,6 +42,7 @@ import fr.openfbx.ui.downloads.DownloadsScreen
 import fr.openfbx.ui.files.FilesScreen
 import fr.openfbx.ui.graphs.GraphsScreen
 import fr.openfbx.ui.home.HomeScreen
+import fr.openfbx.ui.logs.LogsScreen
 import fr.openfbx.ui.network.NetworkScreen
 import fr.openfbx.ui.settings.SettingsScreen
 import fr.openfbx.ui.setup.SetupFlow
@@ -60,6 +61,7 @@ private enum class Dest(val route: String, val label: String, val icon: ImageVec
 private const val SYSTEM_ROUTE = "system"
 private const val WIFI_ROUTE = "wifi"
 private const val GRAPHS_ROUTE = "graphs"
+private const val LOGS_ROUTE = "logs"
 
 private sealed interface ConfigState {
     data object Loading : ConfigState
@@ -159,7 +161,9 @@ private fun MainShell(boxName: String) {
                     composable(Dest.DOWNLOADS.route) { DownloadsScreen() }
                     composable(Dest.FILES.route) { FilesScreen() }
                     composable(Dest.NETWORK.route) { NetworkScreen() }
-                    composable(Dest.SETTINGS.route) { SettingsScreen() }
+                    composable(Dest.SETTINGS.route) {
+                        SettingsScreen(onOpenLogs = { navController.navigate(LOGS_ROUTE) })
+                    }
                     composable(SYSTEM_ROUTE) {
                         SystemScreen(onBack = { navController.popBackStack() })
                     }
@@ -168,6 +172,9 @@ private fun MainShell(boxName: String) {
                     }
                     composable(GRAPHS_ROUTE) {
                         GraphsScreen(onBack = { navController.popBackStack() })
+                    }
+                    composable(LOGS_ROUTE) {
+                        LogsScreen(onBack = { navController.popBackStack() })
                     }
                 }
             }

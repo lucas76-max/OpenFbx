@@ -18,11 +18,14 @@ data class DownloadsUiState(
     val error: String? = null,
     val message: String? = null,
     val busy: Boolean = false,
+    val uploading: Boolean = false,
+    val uploadingName: String? = null,
 ) {
     val runningCount: Int get() = tasks.count { it.isRunning }
     val queuedCount: Int get() = tasks.count { it.status == "queued" || it.isPaused }
     val rateDown: Long get() = tasks.sumOf { it.rxRate ?: 0L }
     val rateUp: Long get() = tasks.sumOf { it.txRate ?: 0L }
+    val uploaded: Long get() = tasks.sumOf { it.txBytes ?: 0L }
 }
 
 class DownloadsViewModel : ViewModel() {
@@ -51,9 +54,28 @@ class DownloadsViewModel : ViewModel() {
         }
     }
 
-    fun add(url: String) {
+    fun add(url: String, directory: String?) {
         if (url.isBlank()) return
-        mutate("Téléchargement ajouté à la file.") { repository.addDownload(url) }
+        mutate("Téléchargement ajouté à la file.") { repository.addDownload(url, directory) }
+    }
+
+    fun addTorrent(fileName: String, content: ByteArray, directory: String?) {
+        if (_state.value.busy || _state.value.uploading) return
+        _state.update { it.copy(uploading = true, uploadingName = fileName, error = null, message = null) }
+        viewModelScope.launch {
+            runCatching { repository.addTorrent(fileName, content, directory) }
+                .onSuccess {
+                    _state.update {
+                        it.copy(uploading = false, uploadingName = null, message = "Torrent « $fileName » ajouté.")
+                    }
+                    refresh(silent = true)
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(uploading = false, uploadingName = null, error = error.userMessage())
+                    }
+                }
+        }
     }
 
     fun pause(task: DownloadTask) = mutate("Téléchargement mis en pause.") {

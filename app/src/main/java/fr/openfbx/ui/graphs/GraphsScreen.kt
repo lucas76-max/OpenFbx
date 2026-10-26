@@ -50,11 +50,6 @@ fun GraphsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        if (state.loadingDatabases) {
-            LoadingPane("Lecture des séries disponibles…")
-            return@ScreenScaffold
-        }
-
         SectionCard(title = "Base de données") {
             if (state.databases.isEmpty()) {
                 EmptyPane("Aucune base RRD exposée par cette Freebox.")
@@ -133,7 +128,8 @@ fun GraphsScreen(
 
         Spacer(Modifier.height(8.dp))
         Text(
-            "Astuce : les champs exacts sont propres à chaque box. En cas d'erreur, saisissez un autre nom de champ.",
+            "Les séries sont lues en une fois auprès du service RRD (base + champ + période). " +
+                "Les noms de champs varient selon le modèle : en cas d'erreur, essayez-en un autre.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -142,8 +138,7 @@ fun GraphsScreen(
 }
 
 private fun formatValue(database: String, value: Double): String = when (database) {
-    "net" -> formatBytes(value.toLong()) + "/s"
+    "net", "switch", "dsl" -> formatBytes(value.toLong().coerceAtLeast(0L)) + "/s"
     "temp" -> "%.1f °C".format(value)
-    "dsl" -> "%.1f".format(value)
     else -> "%.2f".format(value)
 }

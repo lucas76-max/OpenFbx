@@ -62,11 +62,17 @@ class SettingsViewModel : ViewModel() {
         }
     }
 
+    /**
+     * Choisir une palette désactive les couleurs dynamiques : sinon le système
+     * continuerait d'imposer sa propre palette et le choix resterait sans effet.
+     */
     fun setAccent(palette: AccentPalette) {
         viewModelScope.launch {
-            runCatching { repository.updateSettings(accent = palette) }
+            runCatching { repository.updateSettings(accent = palette, dynamicColor = false) }
                 .onSuccess {
-                    _state.update { current -> current.copy(settings = current.settings.copy(accent = palette)) }
+                    _state.update { current ->
+                        current.copy(settings = current.settings.copy(accent = palette, dynamicColor = false))
+                    }
                 }
                 .onFailure { error -> _state.update { it.copy(error = error.userMessage()) } }
         }

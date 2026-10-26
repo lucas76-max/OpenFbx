@@ -33,6 +33,7 @@ import fr.openfbx.ui.components.ScreenScaffold
 import fr.openfbx.ui.components.SectionCard
 import fr.openfbx.ui.components.StatTile
 import fr.openfbx.ui.components.StatusPill
+import fr.openfbx.ui.cpuTemperature
 import fr.openfbx.ui.formatBytes
 import fr.openfbx.ui.formatLinkSpeed
 import fr.openfbx.ui.formatRate
@@ -108,7 +109,7 @@ fun HomeScreen(
                 InfoRow("Modèle", system.boardName ?: system.mac)
                 InfoRow("Firmware", system.firmwareVersion)
                 InfoRow("Uptime", formatUptime(system.uptimeSeconds))
-                InfoRow("Température CPU", system.tempCpuB?.let { "%.1f °C".format(it) })
+                InfoRow("Température CPU", system.cpuTemperature()?.let { "%.1f °C".format(it) } ?: "—")
             }
         }
 

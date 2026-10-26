@@ -14,11 +14,16 @@ import fr.openfbx.core.data.dto.WifiGlobal
 import fr.openfbx.core.data.dto.WifiStation
 import fr.openfbx.core.data.dto.XdslStatus
 import fr.openfbx.core.discovery.DiscoveryClient
+import fr.openfbx.core.log.AppLog
 import fr.openfbx.core.model.AccentPalette
 import fr.openfbx.core.model.AppSettings
 import fr.openfbx.core.model.BoxConfig
 import fr.openfbx.core.model.DiscoveredBox
 import fr.openfbx.core.model.ThemeMode
+import fr.openfbx.core.model.encodeFsDir
+import fr.openfbx.core.model.encodeFsPath
+import fr.openfbx.core.model.fsPathSegment
+import fr.openfbx.core.model.fsRootSegment
 import fr.openfbx.core.net.FreeboxClient
 import fr.openfbx.core.net.FreeboxException
 import fr.openfbx.core.net.PairingStatus
@@ -34,11 +39,10 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import java.util.Base64
 
 /**
- * Point d'entrée unique vers la Freebox : découverte, appairage, session
- * et les groupes d'API implémentés (jalons M0 → M2).
+ * Point d'entrée unique vers la Freebox : découverte, appairage, session et les
+ * groupes d'API implémentés.
  */
 class BoxRepository(
     private val store: BoxStore,
@@ -110,6 +114,7 @@ class BoxRepository(
         accent: AccentPalette? = null,
         dynamicColor: Boolean? = null,
     ) {
+        AppLog.d("Thème", "Réglage : mode=${themeMode ?: "—"} accent=${accent ?: "—"} dynamique=${dynamicColor ?: "—"}")
         store.updateSettings(themeMode = themeMode, accent = accent, dynamicColor = dynamicColor)
     }
 
@@ -132,6 +137,7 @@ class BoxRepository(
     suspend fun system(): SystemInfo = client().getObject("system/", SystemInfo.serializer())
 
     suspend fun reboot() {
+        AppLog.w("Système", "Demande de redémarrage")
         client().post("system/reboot/", buildJsonObject { put("reason", "OpenFbx") })
     }
 
@@ -145,18 +151,15 @@ class BoxRepository(
 
     // ----------------------------------------------------------------------- wifi
 
-    suspend fun wifiEnabled(): Boolean = client().getObject("wifi/", WifiGlobal.serializer()).enabled
+    suspend fun wifiEnabled(): Boolean = client().getObject("wifi/config/", WifiGlobal.serializer()).enabled
 
     suspend fun setWifiEnabled(enabled: Boolean) {
-        client().put("wifi/", buildJsonObject { put("enabled", enabled) })
+        AppLog.i("Wi-Fi", if (enabled) "Activation du Wi-Fi" else "Désactivation du Wi-Fi")
+        client().put("wifi/config/", buildJsonObject { put("enabled", enabled) })
     }
 
     suspend fun wifiAccessPoints(): List<WifiAccessPoint> =
         client().getList("wifi/ap/", WifiAccessPoint.serializer())
-
-    suspend fun setAccessPointEnabled(id: Int, enabled: Boolean) {
-        client().put("wifi/ap/$id/config/", buildJsonObject { put("enabled", enabled) })
-    }
 
     suspend fun wifiStations(apId: Int): List<WifiStation> =
         client().getList("wifi/ap/$apId/stations/", WifiStation.serializer(), "station", "stations")
@@ -186,6 +189,7 @@ class BoxRepository(
     }
 
     suspend fun wakeOnLan(mac: String) {
+        AppLog.i("Réseau", "Wake-on-LAN vers $mac")
         client().post("lan/wol/pub/", buildJsonObject { put("mac", mac) })
     }
 
@@ -194,23 +198,46 @@ class BoxRepository(
     suspend fun downloads(): List<DownloadTask> =
         client().getList("downloads/", DownloadTask.serializer(), "downloads", "tasks")
 
-    /** Ajoute un lien HTTP(S), FTP, magnet ou un fichier `.torrent` à la file. */
-    suspend fun addDownload(url: String) {
-        client().post(
-            "downloads/add",
-            buildJsonObject { put("download_url", url.trim()) },
+    /**
+     * Ajoute un lien HTTP(S), FTP ou magnet.
+     *
+     * `downloads/add` attend des arguments de formulaire (pas du JSON) et
+     * `download_dir` doit être un chemin **base64 terminé par `/`**.
+     */
+    suspend fun addDownload(url: String, directory: String? = null) {
+        val fields = buildMap {
+            put("download_url", url.trim())
+            if (!directory.isNullOrBlank()) put("download_dir", encodeFsDir(directory))
+        }
+        AppLog.i("Téléchargements", "Ajout d'un lien${if (directory.isNullOrBlank()) "" else " vers $directory"}")
+        client().postForm("downloads/add", fields)
+    }
+
+    /** Ajoute un fichier `.torrent` local (envoi multipart de `download_file`). */
+    suspend fun addTorrent(fileName: String, content: ByteArray, directory: String? = null) {
+        val extra = if (directory.isNullOrBlank()) emptyMap() else mapOf("download_dir" to encodeFsDir(directory))
+        AppLog.i("Téléchargements", "Ajout du torrent $fileName (${content.size} o)")
+        client().postMultipartFile(
+            path = "downloads/add",
+            fieldName = "download_file",
+            fileName = fileName,
+            content = content,
+            mediaType = "application/x-bittorrent",
+            extraFields = extra,
         )
     }
 
     /** `stopped` met en pause, `downloading` relance, `retry` relance une tâche en erreur. */
     suspend fun setDownloadStatus(id: Int, status: String) {
+        AppLog.i("Téléchargements", "Tâche $id → $status")
         client().put("downloads/$id", buildJsonObject { put("status", status) })
     }
 
     /** Retire la tâche ; avec [eraseFiles], les fichiers téléchargés sont aussi effacés. */
     suspend fun removeDownload(id: Int, eraseFiles: Boolean) {
+        AppLog.i("Téléchargements", "Retrait de la tâche $id (fichiers effacés : $eraseFiles)")
         if (eraseFiles) {
-            client().post("downloads/$id/erase", buildJsonObject { })
+            client().delete("downloads/$id/erase")
         } else {
             client().delete("downloads/$id")
         }
@@ -218,11 +245,25 @@ class BoxRepository(
 
     // --------------------------------------------------------------------- fichiers
 
-    /** Liste un dossier. [path] est le chemin lisible (ex. `Disque dur/Musique`). */
-    suspend fun files(path: String = ""): List<FileEntry> =
-        client().getList("fs/ls/${encodeFsPath(path)}", FileEntry.serializer(), "files", "entries")
+    /** Liste un dossier. [path] est le chemin lisible (ex. `/Disque dur/Musique`). */
+    suspend fun files(path: String = ""): List<FileEntry> {
+        val encoded = encodeFsPath(path)
+        val segment = if (encoded.isEmpty()) "" else fsPathSegment(encoded)
+        return runCatching {
+            client().getList("fs/ls/$segment", FileEntry.serializer(), "files", "entries")
+        }.getOrElse { error ->
+            // Certains firmwares n'acceptent pas `fs/ls/` nu : on retente avec « / » explicite.
+            if (encoded.isEmpty()) {
+                AppLog.d("Fichiers", "Racine refusée (${error.message}), nouvel essai avec / explicite")
+                client().getList("fs/ls/${fsRootSegment()}", FileEntry.serializer(), "files", "entries")
+            } else {
+                throw error
+            }
+        }
+    }
 
     suspend fun createFolder(parent: String, name: String) {
+        AppLog.i("Fichiers", "Création du dossier $name dans ${parent.ifBlank { "/" }}")
         client().post(
             "fs/mkdir/",
             buildJsonObject {
@@ -233,6 +274,7 @@ class BoxRepository(
     }
 
     suspend fun deleteFiles(paths: List<String>) {
+        AppLog.w("Fichiers", "Suppression de ${paths.size} élément(s)")
         client().post(
             "fs/rm/",
             buildJsonObject {
@@ -242,6 +284,7 @@ class BoxRepository(
     }
 
     suspend fun renameFile(sourcePathBase64: String, newName: String) {
+        AppLog.i("Fichiers", "Renommage vers $newName")
         client().post(
             "fs/rename/",
             buildJsonObject {
@@ -251,18 +294,38 @@ class BoxRepository(
         )
     }
 
-    // ------------------------------------------------------------------- métriques
-
-    suspend fun rrdDatabases(): List<String> {
-        val element = client().request("GET", "rrd/")
-        return (element as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content?.takeIf(String::isNotBlank) }
+    /** Envoie un fichier dans [directory] (chemin lisible). */
+    suspend fun uploadFile(
+        directory: String,
+        fileName: String,
+        content: ByteArray,
+        onProgress: (Float) -> Unit = {},
+    ) {
+        client().uploadFile(directory, fileName, content, onProgress)
     }
 
+    // ------------------------------------------------------------------- métriques
+
+    /**
+     * Bases RRD connues. Il n'existe pas d'endpoint de listing : on propose
+     * celles documentées.
+     */
+    fun rrdDatabases(): List<String> = listOf("net", "temp", "dsl", "switch")
+
+    /**
+     * `POST /rrd/` avec `{db, fields, date_start, date_end}` ; la réponse est
+     * `[{time, <champ>}, …]` (et non des tableaux).
+     */
     suspend fun rrdSeries(database: String, field: String, minutes: Int = 60): List<Pair<Long, Double>> {
         val now = System.currentTimeMillis() / 1000
         val start = now - minutes * 60L
-        val path = "rrd/$database/$field?db=$database&start=$start&end=$now&precision=300"
-        return FreeboxClient.parseRrdSeries(client().request("GET", path))
+        val body = buildJsonObject {
+            put("db", database)
+            put("fields", JsonArray(listOf(JsonPrimitive(field))))
+            put("date_start", start)
+            put("date_end", now)
+        }
+        return FreeboxClient.parseRrdPoints(client().post("rrd/", body), field, precision = 1.0)
     }
 
     // -------------------------------------------------------------------- interne
@@ -305,23 +368,3 @@ class BoxRepository(
      */
     private suspend fun <T> optional(block: suspend () -> T): T? = runCatching { block() }.getOrNull()
 }
-
-/**
- * Encode un chemin du système de fichiers pour l'insérer dans une URL.
- *
- * Freebox OS attend le chemin en base64. Comme cet alphabet contient `/`, `+`
- * et `=`, on les percent-encode pour que le chemin reste un seul segment d'URL.
- * Le chemin vide (racine) reste vide : `fs/ls/`.
- */
-fun encodeFsPath(path: String): String {
-    if (path.isBlank()) return ""
-    val encoded = Base64.getEncoder().encodeToString(path.trimEnd('/').toByteArray(Charsets.UTF_8))
-    return encoded
-        .replace("/", "%2F")
-        .replace("+", "%2B")
-        .replace("=", "%3D")
-}
-
-/** Base64 d'un chemin enfant, utilisé quand la box ne renvoie pas le champ `path`. */
-fun childFsPath(parent: String, name: String): String =
-    encodeFsPath(listOf(parent.trimEnd('/'), name).filter { it.isNotEmpty() }.joinToString("/"))

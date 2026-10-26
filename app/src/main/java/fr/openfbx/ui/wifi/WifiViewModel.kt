@@ -74,19 +74,6 @@ class WifiViewModel : ViewModel() {
         }
     }
 
-    fun setAccessPointEnabled(id: Int, enabled: Boolean) {
-        if (_state.value.busy) return
-        _state.update { it.copy(busy = true, message = null) }
-        viewModelScope.launch {
-            runCatching { repository.setAccessPointEnabled(id, enabled) }
-                .onSuccess {
-                    _state.update { it.copy(busy = false, message = "Point d'accès mis à jour.") }
-                    refresh()
-                }
-                .onFailure { error -> _state.update { it.copy(busy = false, error = error.userMessage()) } }
-        }
-    }
-
     fun loadStations(apId: Int) {
         if (_state.value.stationsLoading.contains(apId)) return
         _state.update { it.copy(stationsLoading = it.stationsLoading + apId) }

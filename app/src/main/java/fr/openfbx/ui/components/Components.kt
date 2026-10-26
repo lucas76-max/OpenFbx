@@ -48,7 +48,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import fr.openfbx.ui.theme.PetalBackdrop
+import fr.openfbx.ui.theme.TopGlow
 
 enum class PillTone { NEUTRAL, POSITIVE, NEGATIVE }
 
@@ -154,7 +154,7 @@ fun ScreenScaffold(
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
-            PetalBackdrop(Modifier.align(Alignment.TopCenter))
+            TopGlow(Modifier.align(Alignment.TopCenter))
             Column(
                 modifier = Modifier
                     .fillMaxSize()

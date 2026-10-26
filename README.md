@@ -17,17 +17,39 @@ Jalons **M0 → M3** implémentés et compilés :
 | Découverte | `http://mafreebox.freebox.fr/api_version` + saisie manuelle d'une adresse |
 | Appairage | demande `login/authorize/`, suivi du statut, empreinte du certificat, droits accordés |
 | Accueil | état de la connexion, débits temps réel, Wi-Fi, appareils actifs, redémarrage, raccourcis Wi-Fi / Courbes / Système |
-| Téléchargements | file complète, avancement, débits, ETA, pause / reprise / réessai, ajout par lien ou magnet, retrait avec ou sans les fichiers |
-| Fichiers | explorateur des disques de la box : navigation, fil d'Ariane, création de dossier, renommage, suppression |
+| Téléchargements | file complète, avancement, débits, ETA, pause / reprise / réessai, ajout par lien, magnet ou fichier `.torrent`, choix du dossier de destination, total partagé et ratio |
+| Fichiers | explorateur des disques : navigation, fil d'Ariane, création de dossier et de fichier, envoi de fichiers, renommage, suppression, fiche détaillée |
 | Système | firmware, modèle, série, MAC, uptime, températures, ventilateur, disques |
 | Réseau | onglets Connexion (WAN, FTTH, xDSL) / Appareils (Wake-on-LAN) / DHCP (baux dynamiques, baux statiques) |
 | Wi-Fi | radio globale, points d'accès, activation par AP, appareils associés et signal |
-| Graphiques | séries RRD (base + champ + période) tracées en Canvas |
-| Réglages | apparence (thèmes, palettes), infos de connexion, droits, empreinte, oubli de la box |
+| Graphiques | séries RRD lues via `POST /rrd/` (base + champ + période), tracées en Canvas |
+| Réglages | apparence (thèmes, palettes), infos de connexion, droits, empreinte, journaux, oubli de la box |
+| Journaux | 800 dernières entrées (requêtes HTTP, erreurs, événements), copiables ou exportables en un geste |
 
 Non encore couvert (jalons suivants) : AirMedia, appels et contacts, maison
 connectée et alarme, télévision et PVR, machines virtuelles, VPN, NAT, contrôle
 parental, Freeplug, switch, notifications, LCD.
+
+## Corrections de la 0.2.0
+
+- **Débit maximal** : `bandwidth_down`/`bandwidth_up` sont en bit/s ; une ligne
+  à 5 000 000 bit/s s'affichait « 5000 Gbit/s ».
+- **Explorateur** : les chemins doivent être encodés avec leur `/` initial
+  (`/Disque dur`), sinon la box répond 404 et aucun dossier ne s'ouvre.
+- **Wi-Fi** : la configuration globale est sur `wifi/config/` (et non `wifi/`).
+- **Courbes** : RRD s'interroge en `POST /rrd/` avec `{db, fields, date_start,
+  date_end}` ; la réponse est une liste d'objets `{time, <champ>}`.
+- **Température CPU** : lecture des capteurs `sensors` des firmwares récents,
+  puis `temp_cpub`, puis `temp_cpum`.
+- **Thème** : choisir une palette désactive les couleurs dynamiques (sinon
+  Android continuait d'imposer la sienne) ; le mode OLED et les palettes
+  s'appliquent réellement. Empreinte du certificat affichée par groupes
+  sélectionnables et copiables.
+- **Téléchargements** : `downloads/add` attend un corps `x-www-form-urlencoded`
+  avec `download_url` et `download_dir` (base64), et non du JSON ; l'effacement
+  passe par `DELETE downloads/{id}/erase`.
+- **Appareils** : rafraîchissement toutes les 5 s, débits par appareil quand la
+  box les expose (et via les stations Wi-Fi), fiche détaillée au toucher.
 
 ## Architecture
 
@@ -89,7 +111,9 @@ silencieusement.
 | Pause / reprise / réessai | `PUT downloads/{id}` avec `status` = `stopped` / `downloading` / `retry` |
 | Retirer la tâche | `DELETE downloads/{id}` |
 | Retirer et effacer les fichiers | `POST downloads/{id}/erase` |
-| Lister un dossier | `GET fs/ls/{chemin}` (chemin en base64, `%2F`/`%2B`/`%3D` échappés) |
+| Lister un dossier | `GET fs/ls/{chemin}` (chemin base64 avec `/` initial, `%2F`/`%2B`/`%3D` échappés) |
+| Envoyer un fichier | `ws/upload` : `upload_start` (dirname base64, filename, size), trames binaires de 512 Kio, puis `upload_finalize` |
+| Ajouter un `.torrent` | `POST downloads/add` en multipart, champ `download_file` |
 | Créer un dossier | `POST fs/mkdir/` avec `parent` (base64) et `dirname` |
 | Renommer | `POST fs/rename/` avec `src` (base64) et `dst` |
 | Supprimer | `POST fs/rm/` avec `files` (liste de chemins base64) |
@@ -110,6 +134,9 @@ bits étaient pris pour des mégabits, ce qui affichait « 5000 Gbit/s ».
 Kotlin 2.4.21 · Compose BOM 2026.06.00 · AGP 8.13.2 · `compileSdk` 36 ·
 `minSdk` 26 · OkHttp 5.4.0 · kotlinx.serialization 1.10.0.
 
+Chaque push sur `main` compile l'APK et lance les tests via GitHub Actions ;
+un tag `v*` attache automatiquement l'APK à la release (`.github/workflows/android.yml`).
+
 ## Compiler
 
 ```bash
@@ -129,9 +156,13 @@ Ou ouvrir le dossier dans Android Studio (Gradle 8.14.3, JDK 17+).
   varient selon le firmware.
 - Les états de téléchargement et la valeur `status` acceptée en écriture
   (`stopped` / `downloading` / `retry`) varient selon les firmwares : une erreur
-  est affichée en français plutôt que masquée.
+  est affichée en français plutôt que masquée, et tracée dans le journal.
 - Selon le firmware, `fs/ls` renvoie ou non le champ `path` des entrées ; quand
   il manque, le chemin est reconstruit puis encodé localement.
+- Les débits par appareil ne sont pas exposés par tous les firmwares : la fiche
+  détaillée l'indique explicitement quand la donnée manque.
+- L'envoi de fichiers utilise le WebSocket `ws/upload` documenté ; il n'a pas pu
+  être validé sur une box réelle.
 - L'unité du débit de synchronisation xDSL (`connection/xdsl`) est supposée être
   le bit/s, comme le reste du module connexion.
 - Les modules absents d'un modèle sont détectés par échec d'appel et simplement

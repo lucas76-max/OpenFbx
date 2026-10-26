@@ -78,8 +78,6 @@ fun WifiScreen(
                 expanded = isExpanded,
                 stations = state.stations[accessPoint.id],
                 stationsLoading = state.stationsLoading.contains(accessPoint.id),
-                busy = state.busy,
-                onToggleEnabled = { enabled -> viewModel.setAccessPointEnabled(accessPoint.id, enabled) },
                 onToggleExpanded = {
                     expanded = if (isExpanded) expanded - accessPoint.id else expanded + accessPoint.id
                     if (!isExpanded) viewModel.loadStations(accessPoint.id)
@@ -95,8 +93,6 @@ private fun AccessPointCard(
     expanded: Boolean,
     stations: List<WifiStation>?,
     stationsLoading: Boolean,
-    busy: Boolean,
-    onToggleEnabled: (Boolean) -> Unit,
     onToggleExpanded: () -> Unit,
 ) {
     SectionCard(title = accessPoint.name ?: "Point d'accès ${accessPoint.id}") {
@@ -127,13 +123,7 @@ private fun AccessPointCard(
             formatChannel(accessPoint.status?.primaryChannel, accessPoint.status?.channelWidth),
         )
         InfoRow("Puissance", accessPoint.status?.txPower?.let { "$it %" })
-
-        SwitchRow(
-            title = "Diffusion",
-            checked = accessPoint.isEnabled,
-            enabled = !busy,
-            onCheckedChange = onToggleEnabled,
-        )
+        InfoRow("Type", accessPoint.config?.let { if (it.hideSsid == true) "SSID masqué" else "SSID visible" })
 
         HorizontalDivider()
 

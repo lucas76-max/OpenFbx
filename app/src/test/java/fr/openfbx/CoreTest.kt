@@ -1,9 +1,12 @@
 package fr.openfbx
 
-import fr.openfbx.core.data.childFsPath
 import fr.openfbx.core.data.dto.DownloadTask
-import fr.openfbx.core.data.encodeFsPath
 import fr.openfbx.core.model.BoxConfig
+import fr.openfbx.core.model.childFsPath
+import fr.openfbx.core.model.encodeFsDir
+import fr.openfbx.core.model.encodeFsPath
+import fr.openfbx.core.model.fsRootSegment
+import fr.openfbx.core.model.normalizeFsPath
 import fr.openfbx.core.model.normalizedApiBase
 import fr.openfbx.core.net.ApiEnvelope
 import fr.openfbx.core.net.FbxAuth
@@ -114,33 +117,41 @@ class JsonHelperTest {
 class RrdSeriesTest {
 
     @Test
-    fun `flat rows are parsed into points`() {
+    fun `documented object rows are parsed into points`() {
+        // Réponse documentée de POST /rrd/ : result.data = [{time, <champ>}, …]
         val payload = FbxJson.parseToJsonElement(
-            """{"data":[[1730000000,1024.5],[1730000300,2048]]}""",
+            """{"date_start":1730000000,"data":[{"time":1730000840,"cpub":54.5},{"time":1730000900,"cpub":55.0}],"date_end":1730001000}""",
         )
-        val points = fr.openfbx.core.net.FreeboxClient.parseRrdSeries(payload)
+        val points = fr.openfbx.core.net.FreeboxClient.parseRrdPoints(payload, "cpub", precision = 1.0)
 
         assertEquals(2, points.size)
-        assertEquals(1730000000L, points.first().first)
-        assertEquals(1024.5, points.first().second, 0.001)
+        assertEquals(1730000840L, points.first().first)
+        assertEquals(54.5, points.first().second, 0.001)
     }
 
     @Test
-    fun `nested value arrays keep the first value and skip holes`() {
+    fun `precision divides the returned values`() {
+        val payload = FbxJson.parseToJsonElement("""{"data":[{"time":1730000840,"cpub":5450}]}""")
+        val points = fr.openfbx.core.net.FreeboxClient.parseRrdPoints(payload, "cpub", precision = 100.0)
+        assertEquals(54.5, points.first().second, 0.001)
+    }
+
+    @Test
+    fun `legacy array rows are still accepted`() {
         val payload = FbxJson.parseToJsonElement(
-            """{"data":[[1730000000,[42.0,7.0]],[1730000300,null],[1730000600,[9.5]]]}""",
+            """{"data":[[1730000000,1024.5],[1730000300,null],[1730000600,[9.5]]]}""",
         )
-        val points = fr.openfbx.core.net.FreeboxClient.parseRrdSeries(payload)
+        val points = fr.openfbx.core.net.FreeboxClient.parseRrdPoints(payload, "rate_down", precision = 1.0)
 
         assertEquals(2, points.size)
-        assertEquals(42.0, points.first().second, 0.001)
+        assertEquals(1024.5, points.first().second, 0.001)
         assertEquals(9.5, points.last().second, 0.001)
     }
 
     @Test
     fun `an unexpected shape yields no points instead of crashing`() {
         val payload = FbxJson.parseToJsonElement("""{"result":"nope"}""")
-        assertTrue(fr.openfbx.core.net.FreeboxClient.parseRrdSeries(payload).isEmpty())
+        assertTrue(fr.openfbx.core.net.FreeboxClient.parseRrdPoints(payload, "cpub", 1.0).isEmpty())
     }
 }
 
@@ -209,29 +220,52 @@ class LinkSpeedTest {
 class FsPathTest {
 
     @Test
-    fun `paths are base64 encoded and percent escaped`() {
-        // « Disque dur » -> RGlzcXVlIGR1cg== -> les « = » deviennent %3D
-        assertEquals("RGlzcXVlIGR1cg%3D%3D", encodeFsPath("Disque dur"))
+    fun `paths are encoded with their leading slash`() {
+        // La box attend le chemin complet : « /Disque dur » -> L0Rpc3F1ZSBkdXI=
+        assertEquals("L0Rpc3F1ZSBkdXI=", encodeFsPath("Disque dur"))
+        assertEquals("L0Rpc3F1ZSBkdXI=", encodeFsPath("/Disque dur"))
+        assertEquals("L0Rpc3F1ZSBkdXI=", encodeFsPath("/Disque dur/"))
     }
 
     @Test
-    fun `root path stays empty`() {
+    fun `url segments escape base64 padding and slashes`() {
+        val segment = fr.openfbx.core.model.fsPathSegment(encodeFsPath("/Disque dur"))
+        assertEquals("L0Rpc3F1ZSBkdXI%3D", segment)
+    }
+
+    @Test
+    fun `directory paths keep a trailing slash`() {
+        // download_dir : « /Disque dur/ » -> L0Rpc3F1ZSBkdXIv
+        assertEquals("L0Rpc3F1ZSBkdXIv", encodeFsDir("Disque dur"))
+    }
+
+    @Test
+    fun `root path is empty while the root segment is explicit`() {
         assertEquals("", encodeFsPath(""))
         assertEquals("", encodeFsPath("  "))
+        assertEquals("Lw%3D%3D", fsRootSegment())
+    }
+
+    @Test
+    fun `paths are normalised before use`() {
+        assertEquals("/Disque dur/Musique", normalizeFsPath("Disque dur/Musique/"))
+        assertEquals("/Musique", normalizeFsPath("//Musique"))
+        assertEquals("", normalizeFsPath("/"))
     }
 
     @Test
     fun `child paths are joined before encoding`() {
-        assertEquals(encodeFsPath("Disque dur/Musique"), childFsPath("Disque dur", "Musique"))
-        assertEquals(encodeFsPath("Musique"), childFsPath("", "Musique"))
+        assertEquals("/Disque dur/Musique", childFsPath("Disque dur", "Musique"))
+        assertEquals("/Musique", childFsPath("", "Musique"))
+        assertEquals("/Disque dur/Musique", childFsPath("/Disque dur", "Musique"))
     }
 
     @Test
-    fun `encoded path never contains a raw slash plus or padding`() {
-        val encoded = encodeFsPath("Disque dur/Films & séries")
-        assertFalse(encoded.contains('/'))
-        assertFalse(encoded.contains('+'))
-        assertFalse(encoded.contains('='))
+    fun `url segment never contains a raw slash plus or padding`() {
+        val segment = fr.openfbx.core.model.fsPathSegment(encodeFsPath("/Disque dur/Films & séries"))
+        assertFalse(segment.contains('/'))
+        assertFalse(segment.contains('+'))
+        assertFalse(segment.contains('='))
     }
 }
 

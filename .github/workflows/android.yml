@@ -1,0 +1,75 @@
+name: Android
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Compiler et tester
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer le JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Installer Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Compiler l'APK et lancer les tests
+        run: ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest
+
+      - name: Nommer l'APK
+        run: |
+          mkdir -p artifacts
+          cp app/build/outputs/apk/debug/app-debug.apk "artifacts/openfbx-${GITHUB_REF_NAME}-debug.apk"
+
+      - name: Publier l'APK en artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openfbx-debug-apk
+          path: artifacts/openfbx-*-debug.apk
+          if-no-files-found: error
+
+      - name: Publier les résultats de tests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tests
+          path: app/build/reports/tests/
+          if-no-files-found: ignore
+
+  release:
+    name: Attacher l'APK à la release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Télécharger l'APK compilé
+        uses: actions/download-artifact@v4
+        with:
+          name: openfbx-debug-apk
+          path: artifacts
+
+      - name: Créer ou mettre à jour la release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/openfbx-*-debug.apk
+          generate_release_notes: true
+          fail_on_unmatched_files: true

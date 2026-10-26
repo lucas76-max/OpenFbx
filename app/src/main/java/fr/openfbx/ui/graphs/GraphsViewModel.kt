@@ -11,22 +11,25 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class GraphsUiState(
-    val loadingDatabases: Boolean = true,
     val databases: List<String> = emptyList(),
     val database: String = "net",
-    val field: String = "rx_1",
+    val field: String = "rate_down",
     val windowMinutes: Int = 60,
     val points: List<Pair<Long, Double>> = emptyList(),
     val loadingSeries: Boolean = false,
     val seriesError: String? = null,
 )
 
+/**
+ * Champs documentés par base RRD (voir `dev.freebox.fr/sdk/os/rrd/`).
+ * `net` et `switch` sont en octets/s, `temp` en °C, `dsl` en octets/s
+ * (le SNR est en dixièmes de dB).
+ */
 fun fieldSuggestions(database: String): List<String> = when (database) {
-    "net" -> listOf("rx_1", "tx_1", "bw_down", "bw_up")
-    "temp" -> listOf("temp_cpub", "temp_sw", "temp_cpu")
-    "dsl" -> listOf("snr", "rate", "attenuation")
-    "switch" -> listOf("rx_1", "tx_1")
-    "wifi" -> listOf("rx_1", "tx_1")
+    "net" -> listOf("rate_down", "rate_up", "bw_down", "bw_up")
+    "temp" -> listOf("cpub", "cpum", "sw", "hdd")
+    "dsl" -> listOf("rate_down", "rate_up", "snr_down", "snr_up")
+    "switch" -> listOf("rx_1", "tx_1", "rx_2", "tx_2")
     else -> listOf("value")
 }
 
@@ -41,24 +44,16 @@ class GraphsViewModel : ViewModel() {
     }
 
     fun loadDatabases() {
-        viewModelScope.launch {
-            _state.update { it.copy(loadingDatabases = true) }
-            val databases = runCatching { repository.rrdDatabases() }.getOrDefault(emptyList())
-            _state.update { current ->
-                val database = if (databases.isEmpty() || databases.contains(current.database)) {
-                    current.database
-                } else {
-                    databases.first()
-                }
-                current.copy(
-                    loadingDatabases = false,
-                    databases = databases,
-                    database = database,
-                    field = if (databases.contains(current.database)) current.field else fieldSuggestions(database).first(),
-                )
-            }
-            loadSeries()
+        val databases = repository.rrdDatabases()
+        _state.update { current ->
+            val database = if (databases.contains(current.database)) current.database else databases.first()
+            current.copy(
+                databases = databases,
+                database = database,
+                field = if (databases.contains(current.database)) current.field else fieldSuggestions(database).first(),
+            )
         }
+        loadSeries()
     }
 
     fun selectDatabase(database: String) {
