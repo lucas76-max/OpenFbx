@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Le trafic en clair n'est autorisé que pour la découverte initiale de la Freebox :
+  mafreebox.freebox.fr/api_version, qui répond en HTTP sur le réseau local.
+  Tout le reste de l'API passe en HTTPS.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">mafreebox.freebox.fr</domain>
+    </domain-config>
+</network-security-config>

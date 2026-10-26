@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OpenFbx</string>
+
+    <string name="action_refresh">Actualiser</string>
+    <string name="action_cancel">Annuler</string>
+    <string name="action_confirm">Confirmer</string>
+    <string name="action_retry">Réessayer</string>
+    <string name="action_back">Retour</string>
+    <string name="action_close">Fermer</string>
+    <string name="action_save">Enregistrer</string>
+
+    <string name="nav_home">Accueil</string>
+    <string name="nav_system">Système</string>
+    <string name="nav_network">Réseau</string>
+    <string name="nav_wifi">Wi-Fi</string>
+    <string name="nav_graphs">Graphiques</string>
+    <string name="nav_settings">Réglages</string>
+
+    <string name="state_loading">Chargement…</string>
+</resources>
