@@ -8,6 +8,10 @@ Clair / Sombre / OLED, palette d'accent au choix ou couleurs dynamiques,
 navigation adaptative (barre inférieure sur téléphone, rail latéral dès 600 dp),
 états de chargement, d'erreur et vides systématiques.
 
+> Avertissement :
+> - L'application est en bêta. Elle peut rencontrer des bugs ou effectuer des opérations inattendues. Si vous recontrez des bugs, n'hésitez pas à me les signaler ou à les réparer vous-même via une pull request si vous le souhaitez.
+> - L'application à été codée par intelligence artificielle.
+
 ## État actuel
 
 Jalons **M0 → M3** implémentés et compilés :
@@ -135,8 +139,7 @@ percent-encodés pour rester dans un seul segment d'URL.
 
 `bandwidth_down` / `bandwidth_up` sont exprimés en **bits par seconde** par
 Freebox OS. `formatLinkSpeed` convertit explicitement (kbit/s, Mbit/s ou
-Gbit/s) : une ligne à `5 000 000` bit/s s'affiche « 5 Mbit/s ». Auparavant ces
-bits étaient pris pour des mégabits, ce qui affichait « 5000 Gbit/s ».
+Gbit/s) : une ligne à `5 000 000` bit/s s'affiche « 5 Mbit/s ».
 
 ### Versions
 
@@ -164,10 +167,7 @@ Ou ouvrir le dossier dans Android Studio (Gradle 8.14.3, JDK 17+).
 
 ## Limites connues
 
-- **Non testé contre une vraie Freebox** : l'appairage exige de valider sur
-  l'écran du boîtier et un accès au réseau local. Les contrats d'API suivent la
-  documentation Freebox OS et les clients libres existants ; certains champs
-  varient selon le firmware.
+- **Non testé sur toutes les Freebox** : uniquement testé sur une Freebox Pop.
 - Les états de téléchargement et la valeur `status` acceptée en écriture
   (`stopped` / `downloading` / `retry`) varient selon les firmwares : une erreur
   est affichée en français plutôt que masquée, et tracée dans le journal.
@@ -185,6 +185,10 @@ Ou ouvrir le dossier dans Android Studio (Gradle 8.14.3, JDK 17+).
   propose des suggestions et accepte un champ saisi à la main.
 - Aucune synchronisation en arrière-plan, aucun widget, pas de mode hors ligne.
 
+## Contributions
+
+Les contributions (faites par un humain ou par une IA) sont acceptées et sont les bienvenues !
+
 ## Licence
 
-À définir.
+MIT.
