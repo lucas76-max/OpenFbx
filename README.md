@@ -134,8 +134,13 @@ bits étaient pris pour des mégabits, ce qui affichait « 5000 Gbit/s ».
 Kotlin 2.4.21 · Compose BOM 2026.06.00 · AGP 8.13.2 · `compileSdk` 36 ·
 `minSdk` 26 · OkHttp 5.4.0 · kotlinx.serialization 1.10.0.
 
-Chaque push sur `main` compile l'APK et lance les tests via GitHub Actions ;
-un tag `v*` attache automatiquement l'APK à la release (`.github/workflows/android.yml`).
+Chaque push et chaque tag déclenchent la compilation de l'APK et les tests via
+GitHub Actions, avec l'APK exposé en artefact téléchargeable
+(`.github/workflows/android.yml`). La CI ne publie volontairement pas la release :
+un runner recrée un keystore debug à chaque exécution, ce qui donnerait une
+signature différente à chaque version et empêcherait toute mise à jour par
+dessus. Les releases sont signées depuis le poste de développement, avec une clé
+stable.
 
 ## Compiler
 

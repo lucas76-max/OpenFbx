@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: android-${{ github.ref }}
@@ -55,21 +55,8 @@ jobs:
           path: app/build/reports/tests/
           if-no-files-found: ignore
 
-  release:
-    name: Attacher l'APK à la release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Télécharger l'APK compilé
-        uses: actions/download-artifact@v4
-        with:
-          name: openfbx-debug-apk
-          path: artifacts
-
-      - name: Créer ou mettre à jour la release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: artifacts/openfbx-*-debug.apk
-          generate_release_notes: true
-          fail_on_unmatched_files: true
+  # Pas de job de release ici : un runner GitHub recrée un keystore debug à
+  # chaque exécution, donc l'APK publié aurait une signature différente à
+  # chaque tag et ne pourrait pas mettre à jour l'application installée.
+  # La CI valide le build et expose l'APK en artefact ; les releases sont
+  # signées depuis le poste de développement avec un keystore stable.
